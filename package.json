@@ -1,7 +1,7 @@
 {
   "name": "fluxforge",
   "type": "module",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Enterprise-grade file chunking & concurrent processing library with Web Workers, automatic retry, real-time progress tracking, and MD5 integrity validation for modern browsers. Perfect for large file uploads, streaming, and data processing pipelines.",
   "author": {
     "name": "joygqz",
