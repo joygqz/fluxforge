@@ -1,0 +1,15 @@
+example/* linguist-documentation
+
+src/* linguist-language=TypeScript
+*.ts linguist-language=TypeScript
+*.js linguist-language=JavaScript
+
+*.json linguist-language=JSON
+*.md linguist-documentation
+*.yml linguist-language=YAML
+*.yaml linguist-language=YAML
+
+dist/* linguist-generated=true
+node_modules/* linguist-vendored=true
+
+* linguist-detectable=true

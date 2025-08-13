@@ -1,0 +1,7 @@
+pnpm-debug.log*
+node_modules
+dist
+docs
+*.local
+.idea
+.DS_Store

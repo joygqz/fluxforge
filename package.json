@@ -1,0 +1,148 @@
+{
+  "name": "fluxforge",
+  "type": "module",
+  "version": "0.0.2",
+  "description": "Enterprise-grade file chunking & concurrent processing library with Web Workers, automatic retry, real-time progress tracking, and MD5 integrity validation for modern browsers. Perfect for large file uploads, streaming, and data processing pipelines.",
+  "author": {
+    "name": "joygqz",
+    "email": "joygqz@gmail.com",
+    "url": "https://github.com/joygqz"
+  },
+  "license": "MIT",
+  "directories": {
+    "lib": "./dist",
+    "example": "./example"
+  },
+  "homepage": "https://joygqz.github.io/fluxforge/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/joygqz/fluxforge.git"
+  },
+  "bugs": {
+    "url": "https://github.com/joygqz/fluxforge/issues"
+  },
+  "keywords": [
+    "typescript",
+    "typescript-library",
+    "file-chunking",
+    "file-upload",
+    "large-file-processing",
+    "large-file-upload",
+    "file-streaming",
+    "web-workers",
+    "multi-threaded",
+    "parallel-processing",
+    "concurrent-processing",
+    "md5-hash",
+    "file-integrity",
+    "sparkmd5",
+    "streaming",
+    "browser",
+    "frontend",
+    "file-splitting",
+    "chunk-processing",
+    "memory-efficient",
+    "high-performance",
+    "enterprise-grade",
+    "async",
+    "promise",
+    "blob",
+    "real-time",
+    "progress-tracking",
+    "progress-monitoring",
+    "javascript",
+    "es6",
+    "modern-browsers",
+    "file-processing",
+    "upload-library",
+    "client-side",
+    "lightweight",
+    "retry-logic",
+    "error-handling",
+    "abort-signal",
+    "task-scheduler",
+    "data-pipeline",
+    "zero-copy",
+    "backpressure",
+    "performance-optimized",
+    "scalable",
+    "production-ready"
+  ],
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.umd.cjs",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.umd.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "LICENSE",
+    "README-zh-CN.md",
+    "README.md",
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=8.0.0"
+  },
+  "browserslist": [
+    "Chrome >= 66",
+    "Firefox >= 57",
+    "Safari >= 12.1",
+    "Edge >= 16"
+  ],
+  "scripts": {
+    "dev": "run-p serve \"build-only {@}\" -- --watch",
+    "serve": "vite",
+    "build": "run-s typecheck lint build-only",
+    "build-only": "vite build",
+    "build:example": "pnpm build && vite build --mode example",
+    "lint": "eslint --fix",
+    "typecheck": "vue-tsc --build",
+    "prepack": "pnpm build",
+    "prepare": "simple-git-hooks",
+    "release": "bumpp && pnpm publish"
+  },
+  "peerDependencies": {
+    "typescript": ">=5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "typescript": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "bumpp": "^10.2.3"
+  },
+  "devDependencies": {
+    "@antfu/eslint-config": "^5.1.0",
+    "@tsconfig/node22": "^22.0.2",
+    "@types/node": "^22.0.0",
+    "@types/spark-md5": "^3.0.5",
+    "@vitejs/plugin-vue": "^6.0.0",
+    "@vue/tsconfig": "^0.7.0",
+    "eslint": "^9.32.0",
+    "eslint-plugin-format": "^1.0.1",
+    "jiti": "^2.5.1",
+    "npm-run-all2": "^8.0.4",
+    "simple-git-hooks": "^2.13.1",
+    "spark-md5": "^3.0.2",
+    "typescript": "~5.8.3",
+    "unplugin-dts": "1.0.0-beta.6",
+    "vite": "^7.0.4",
+    "vue": "^3.5.17",
+    "vue-tsc": "^2.2.12"
+  },
+  "simple-git-hooks": {
+    "pre-commit": "npx lint-staged"
+  },
+  "lint-staged": {
+    "*": "eslint --fix"
+  }
+}
