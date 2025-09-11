@@ -2,7 +2,7 @@
   "name": "fluxforge",
   "type": "module",
   "version": "0.0.4",
-  "description": "Enterprise-grade file chunking & concurrent processing library with Web Workers, automatic retry, real-time progress tracking, and MD5 integrity validation for modern browsers. Perfect for large file uploads, streaming, and data processing pipelines.",
+  "description": "企业级文件分块和并发处理库，具备 Web Workers、自动重试、实时进度跟踪和 MD5 完整性验证功能，专为现代浏览器设计。非常适合大文件上传、流式处理和数据处理管道场景。",
   "author": {
     "name": "joygqz",
     "email": "joygqz@gmail.com",
