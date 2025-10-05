@@ -4,7 +4,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-Ready-blue.svg)](https://www.typescriptlang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-企业级文件分块和并发处理库，具备 Web Workers、自动重试、实时进度跟踪和 MD5 完整性验证功能，专为现代浏览器设计。非常适合大文件上传、流式处理和数据处理管道场景。
+文件分块和并发处理库，具备 Web Workers、自动重试、实时进度跟踪和 MD5 完整性验证功能，专为现代浏览器设计。
 
 ---
 
