@@ -1,18 +1,10 @@
-# FluxForge
-
-[![npm version](https://img.shields.io/npm/v/fluxforge.svg)](https://www.npmjs.com/package/fluxforge)
-[![TypeScript](https://img.shields.io/badge/TypeScript-Ready-blue.svg)](https://www.typescriptlang.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+# FluxForge [![NPM Version](https://img.shields.io/npm/v/fluxforge)](https://www.npmjs.com/package/fluxforge) [![NPM Downloads](https://img.shields.io/npm/dm/fluxforge)](https://www.npmjs.com/package/fluxforge)
 
 文件分块和并发处理库，具备 Web Workers、自动重试、实时进度跟踪和 MD5 完整性验证功能，专为现代浏览器设计。
-
----
 
 ## 在线演示
 
 [在线演示](https://joygqz.github.io/fluxforge/)
-
----
 
 ## 核心特性
 
@@ -41,15 +33,11 @@
 - **文件级哈希计算**：聚合哈希计算用于完整文件验证
 - **确定性处理**：保证并行操作中的分块顺序
 
----
-
 ## 安装
 
 ```bash
 pnpm add fluxforge
 ```
-
----
 
 ## 快速开始
 
@@ -109,8 +97,6 @@ catch (error) {
 const fileHash = await calculateFileHash(chunkPromises)
 console.log('文件 MD5:', fileHash)
 ```
-
----
 
 ## API 参考
 
@@ -193,8 +179,6 @@ interface ProcessController {
 }
 ```
 
----
-
 ## 性能考虑
 
 ### 最佳分块大小
@@ -214,8 +198,6 @@ interface ProcessController {
 - 库使用流式处理最小化内存占用
 - 只有活跃分块保存在内存中
 - 已处理分块的自动垃圾回收
-
----
 
 ## 错误处理
 
@@ -239,16 +221,12 @@ catch (error) {
 }
 ```
 
----
-
 ## 浏览器兼容性
 
 - **Chrome 66+** (Web Workers, AbortSignal)
 - **Firefox 57+** (Web Workers, AbortSignal)
 - **Safari 12.1+** (Web Workers 支持)
 - **Edge 16+** (基于 Chromium)
-
----
 
 ## 许可证
 
