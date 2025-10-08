@@ -260,7 +260,7 @@ async function handleCollectChunks() {
                 :disabled="isProcessing || !chunkPromises.length" style="font-size:1rem"
                 @click="processAllChunks"
               >
-                处理切片<br>
+                模拟处理切片<br>
                 Process Chunks<br>
                 {{ completedCount }} / {{ totalCount }}
               </button>
