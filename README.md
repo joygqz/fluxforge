@@ -1,233 +1,192 @@
 # FluxForge [![NPM Version](https://img.shields.io/npm/v/fluxforge)](https://www.npmjs.com/package/fluxforge) [![NPM Downloads](https://img.shields.io/npm/dm/fluxforge)](https://www.npmjs.com/package/fluxforge)
 
-文件分块和并发处理库，具备 Web Workers、自动重试、实时进度跟踪和 MD5 完整性验证功能，专为现代浏览器设计。
+基于 Web Worker 的浏览器端文件分片库，提供并发任务处理、可暂停/取消的任务控制、可配置的自动重试以及 MD5 校验。
 
-## 在线演示
+> [在线演示](https://joygqz.github.io/fluxforge/)
 
-[在线演示](https://joygqz.github.io/fluxforge/)
+## 特性
 
-## 核心特性
+- **多 Worker 并行分片哈希**：根据 `navigator.hardwareConcurrency` 调度多个 Worker，并行计算每个分片的 MD5。
+- **可控的并发处理**：通过用户提供的处理函数串接上传 / 转换等业务逻辑，支持上限并发。
+- **任务生命周期管理**：`pause` 暂停后续任务、`resume` 恢复、`cancel` 通过 `AbortSignal` 通知正在运行的处理函数立即终止。
+- **可配置的自动重试**：基于指数退避的重试，提供 `maxRetries`、`retryBaseDelayMs`、`retryMaxDelayMs` 三个参数，超过上限会抛出 `RetryExhaustedError` 并附带最后一次错误。
+- **真实的文件 MD5**：`calculateFileHash` 按顺序读取分片并增量喂入 SparkMD5，结果与对原始文件做 `md5sum` 一致。
+- **TypeScript 优先**：完整的类型定义；导出 `CancellationError`、`RetryExhaustedError` 便于业务做精确判断。
 
-### 🚀 高性能架构
-
-- **多线程处理**：利用 Web Workers 实现真正的并行分块，最大化 CPU 利用率
-- **零拷贝流式处理**：内存高效的分块处理，无需将整个文件加载到内存中
-- **智能资源管理**：自动检测硬件能力并优化线程分配
-
-### 🛡️ 企业级可靠性
-
-- **自动重试逻辑**：内置指数退避策略处理临时故障
-- **任务生命周期管理**：全面的暂停/恢复/取消控制，优雅清理资源
-- **基于信号的取消**：集成 AbortSignal 实现即时任务终止
-- **类型安全 API**：100% TypeScript，严格类型检查和全面接口定义
-
-### 🔧 高级任务调度
-
-- **可配置并发度**：根据系统约束精细调整并行执行限制
-- **实时进度跟踪**：细粒度进度回调确保 UI 响应性
-- **背压处理**：智能队列防止高吞吐量场景下的内存溢出
-
-### 🔐 数据完整性
-
-- **分块级 MD5 哈希**：使用 SparkMD5 进行每个分块的完整性验证
-- **文件级哈希计算**：聚合哈希计算用于完整文件验证
-- **确定性处理**：保证并行操作中的分块顺序
+> 说明：MD5 适合做完整性校验（与服务端比对），**不适用于安全场景**（如密码、签名）。
 
 ## 安装
 
 ```bash
 pnpm add fluxforge
+# 或
+npm install fluxforge
 ```
 
 ## 快速开始
 
-```typescript
-import { calculateFileHash, chunkFile, processChunks } from 'fluxforge'
+```ts
+import { calculateFileHash, CancellationError, chunkFile, processChunks, RetryExhaustedError } from 'fluxforge'
 
-// 使用最优设置创建分块 Promise
+// 1. 切分文件 —— 返回与分片一一对应的 Promise 数组（顺序与索引一致）
 const chunkPromises = chunkFile(file, {
-  chunkSize: 4 * 1024 * 1024 // 4MB 分块以获得最佳性能
+  chunkSize: 4 * 1024 * 1024, // 4 MiB
 })
 
-// 使用高级配置处理分块
+// 2. 并发处理每个分片
 const controller = processChunks(
   chunkPromises,
   async (chunk, signal) => {
-    // 优雅处理取消
-    if (signal.aborted)
-      throw new Error('操作已取消')
-
-    // 您的业务逻辑（上传、转换等）
-    await uploadChunk(chunk.blob, chunk.index)
-
-    // 可选：在长时间操作中监听取消
-    signal.addEventListener('abort', () => {
-      // 清理资源，取消网络请求等
-    })
+    // 业务逻辑：上传、转码、加密等
+    await uploadChunk(chunk.blob, chunk.index, { signal })
   },
   {
-    concurrency: 6, // 大多数场景的最佳值
-    onProgress: (completed, total) => {
-      const percentage = Math.round((completed / total) * 100)
-      updateProgressBar(percentage)
-    }
-  }
+    concurrency: 6,
+    maxRetries: 3,
+    onProgress: (done, total) => {
+      updateUi(done / total)
+    },
+  },
 )
 
-// 高级任务控制
-controller.pause() // 优雅暂停所有处理
-controller.resume() // 从暂停处恢复
-controller.cancel() // 立即中止所有操作
+// 3. 任务控制
+// controller.pause()
+// controller.resume()
+// controller.cancel()
 
-// 等待完成
 try {
   await controller.promise
-  console.log('所有分块处理成功')
 }
 catch (error) {
-  if (error.message === 'Task cancelled') {
-    console.log('处理被用户取消')
+  if (error instanceof CancellationError) {
+    // 被显式取消
+  }
+  else if (error instanceof RetryExhaustedError) {
+    // 超过重试上限，error.cause 是最后一次错误
+    console.error('Upload failed:', error.cause)
   }
   else {
-    console.error('处理失败:', error)
+    throw error
   }
 }
 
-// 验证文件完整性
-const fileHash = await calculateFileHash(chunkPromises)
-console.log('文件 MD5:', fileHash)
+// 4. （可选）计算整个文件的 MD5
+const md5 = await calculateFileHash(chunkPromises)
 ```
 
-## API 参考
+## API
 
-### 核心函数
+### `chunkFile(file, options?)`
 
-#### `chunkFile(file: File, options?: Options): Promise<Chunk>[]`
+```ts
+function chunkFile(file: File, options?: ChunkOptions): Promise<Chunk>[]
+```
 
-将文件分割成分块 Promise 数组，每个分块由 Web Workers 并行处理。
+把文件切成若干分片，每个分片由内部 Worker 计算 MD5。返回的 Promise 数组按分片索引顺序排列，可以独立 `await` 单个分片。
 
-**参数:**
+`ChunkOptions`：
 
-- `file`: 要分块的 File 对象
-- `options.chunkSize`: 分块大小（字节），默认: `Math.min(1024 * 1024, file.size)`
+| 字段          | 默认值                                 | 说明                                            |
+| ------------- | -------------------------------------- | ----------------------------------------------- |
+| `chunkSize`   | `min(1 MiB, file.size)`                | 单个分片字节数，必须 `> 0`                      |
+| `workerCount` | `navigator.hardwareConcurrency \|\| 4` | 启动的 Worker 数；自动夹紧到 `[1, totalChunks]` |
 
-**返回:** 解析为 `Chunk` 对象的 Promise 数组
+- 文件大小为 `0` 时返回 `[]`。
+- 若 Worker 内部失败（例如文件已被释放），对应 Promise 会 reject。
 
-**性能说明:**
+### `processChunks(chunkPromises, processor, options?)`
 
-- 基于 `navigator.hardwareConcurrency` 自动确定最佳 worker 数量
-- 所有分块处理完成后自动终止 workers
-- 尽管并行处理，仍保证分块顺序
+```ts
+function processChunks(
+  chunkPromises: Promise<Chunk>[],
+  processor: ChunkProcessor,
+  options?: ProcessOptions,
+): ProcessController
+```
 
-#### `processChunks(chunkPromises, processor, options?): ProcessController`
+并发执行 `processor`，并提供任务控制与重试。
 
-使用可配置并发度和自动重试逻辑处理分块 Promise。
+`ChunkProcessor`：
 
-**参数:**
-
-- `chunkPromises`: 来自 `chunkFile()` 的分块 Promise 数组
-- `processor`: 处理每个分块的函数
-- `options.concurrency`: 最大并发处理器数量（默认: 6）
-- `options.onProgress`: 进度回调函数
-
-**返回:** 具有暂停/恢复/取消功能的 `ProcessController`
-
-**处理器函数:**
-
-```typescript
+```ts
 type ChunkProcessor = (chunk: Chunk, signal: AbortSignal) => void | Promise<void>
 ```
 
-处理器接收:
+- `chunk` 即解析后的分片；
+- `signal` 在 `cancel()` 时触发，处理函数应在合适位置检查或转发给 `fetch` 等。
 
-- `chunk`: 包含 blob 数据和元数据的已解析分块
-- `signal`: 用于取消处理的 AbortSignal
+`ProcessOptions`：
 
-#### `collectChunks(chunkPromises: Promise<Chunk>[]): Promise<Chunk[]>`
+| 字段               | 默认值 | 说明                                                 |
+| ------------------ | ------ | ---------------------------------------------------- |
+| `concurrency`      | `6`    | 最大并发处理数                                       |
+| `maxRetries`       | `3`    | 单个分片失败后的最大重试次数（不含首次）             |
+| `retryBaseDelayMs` | `500`  | 指数退避基准时间                                     |
+| `retryMaxDelayMs`  | `5000` | 退避时间上限                                         |
+| `onProgress`       | —      | `(completed, total) => void`，每完成一个分片回调一次 |
 
-等待所有分块 Promise 解析并按原始顺序返回它们。
+`ProcessController`：
 
-#### `calculateFileHash(chunkPromises: Promise<Chunk>[]): Promise<string>`
-
-通过聚合各个分块哈希计算整个文件的 MD5 哈希值。
-
-### 类型定义
-
-```typescript
-interface Chunk {
-  blob: Blob // 分块数据
-  hash: string // 此分块的 MD5 哈希
-  index: number // 从零开始的分块索引
-  start: number // 文件中的起始字节位置
-  end: number // 文件中的结束字节位置
-}
-
-interface Options {
-  chunkSize?: number // 分块大小（字节）
-}
-
-interface ProcessOptions {
-  concurrency?: number // 最大并发处理器数量
-  onProgress?: (completed: number, total: number) => void
-}
-
+```ts
 interface ProcessController {
-  pause: () => void // 暂停处理
-  resume: () => void // 恢复处理
-  cancel: () => void // 取消所有处理
-  promise: Promise<void> // 完成 Promise
+  pause: () => void
+  resume: () => void
+  cancel: () => void
+  readonly promise: Promise<void>
 }
 ```
 
-## 性能考虑
+- `pause` 是 **协作式** 的：已开始的处理函数会继续运行直到它返回；之后任何新的重试或新分片会等待 `resume`。
+- `cancel` 会 `abort` 信号并让正在等待的任务立即抛出 `CancellationError`；正在执行的 `processor` 应自行响应 `signal.aborted`。
 
-### 最佳分块大小
+### `collectChunks(chunkPromises)`
 
-- **小文件 (<10MB)**: 使用默认分块大小简化操作
-- **中等文件 (10MB-1GB)**: 2-8MB 分块平衡内存/性能
-- **大文件 (>1GB)**: 8-16MB 分块最小化开销
+```ts
+function collectChunks(chunkPromises: Promise<Chunk>[]): Promise<Chunk[]>
+```
 
-### 并发度指南
+等待全部分片解析，按索引顺序返回。
 
-- **CPU 密集型处理**: 使用 `navigator.hardwareConcurrency`
-- **网络操作**: 3-6 个并发请求避免服务器过载
-- **内存受限环境**: 减少并发度防止内存不足
+### `calculateFileHash(chunkPromises)`
 
-### 内存管理
+```ts
+function calculateFileHash(chunkPromises: Promise<Chunk>[]): Promise<string>
+```
 
-- 库使用流式处理最小化内存占用
-- 只有活跃分块保存在内存中
-- 已处理分块的自动垃圾回收
+按顺序读取每个分片的二进制数据，增量计算并返回完整文件的 MD5。结果与服务端对原始文件执行 `md5sum` **一致**。
 
-## 错误处理
+> 注意：这会触发对每个分片的 `arrayBuffer()` 读取。大文件上传完成后不再需要 MD5 时可以省略本步骤。
 
-库提供强大的错误处理和自动重试机制：
+### 类型
 
-1. **临时故障**: 使用指数退避自动重试
-2. **取消操作**: 通过 AbortSignal 清洁终止
-3. **致命错误**: 立即传播故障
-
-```typescript
-try {
-  await controller.promise
-}
-catch (error) {
-  if (error.message === 'Task cancelled') {
-    // 用户主动取消
-  }
-  else {
-    // 所有重试耗尽后的实际处理错误
-  }
+```ts
+interface Chunk {
+  blob: Blob // 分片数据
+  hash: string // 该分片的 MD5
+  index: number // 0 起始的分片序号
+  start: number // 起始字节（含）
+  end: number // 结束字节（不含）
 }
 ```
+
+### 错误类型
+
+| 类                    | 何时抛出                                                                          |
+| --------------------- | --------------------------------------------------------------------------------- |
+| `CancellationError`   | 调用 `cancel()` 后，待执行任务从 `processChunks` 抛出                             |
+| `RetryExhaustedError` | 单个分片重试次数耗尽；`error.cause` 是最后一次错误，`error.attempts` 是总尝试次数 |
+
+判断方式：`error instanceof CancellationError`，避免依赖错误消息字符串。
 
 ## 浏览器兼容性
 
-- **Chrome 66+** (Web Workers, AbortSignal)
-- **Firefox 57+** (Web Workers, AbortSignal)
-- **Safari 12.1+** (Web Workers 支持)
-- **Edge 16+** (基于 Chromium)
+依赖 Web Workers、`AbortSignal`、`Blob.arrayBuffer()`：
+
+- Chrome ≥ 66
+- Firefox ≥ 57
+- Safari ≥ 12.1
+- Edge ≥ 16
 
 ## 许可证
 
-MIT 许可证 - 详见 [LICENSE](LICENSE) 文件。
+[MIT](./LICENSE)

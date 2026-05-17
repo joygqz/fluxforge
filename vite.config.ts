@@ -33,12 +33,13 @@ export default defineConfig(({ command, mode }) => {
         name: 'FluxForge',
         fileName: 'index',
       },
-      target: 'es2015',
+      target: 'es2017',
+      sourcemap: true,
     },
     plugins: [
       dts({
         tsconfigPath: './tsconfig.app.json',
-        include: ['env.d.ts', './src/index.ts'],
+        include: ['env.d.ts', './src/**/*.ts'],
       }),
     ],
   }

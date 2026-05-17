@@ -1,105 +1,128 @@
-// 任务控制器
+import { CancellationError, RetryExhaustedError } from './types'
+
 export class TaskController {
   private paused = false
   private cancelled = false
-  private pauseResolvers: Array<() => void> = []
-  private timers: Array<{ timer: number, resolve: () => void }> = []
+  private pauseResolvers = new Set<() => void>()
+  private delayHandles = new Set<{ cancel: () => void }>()
   private abortController = new AbortController()
 
-  // 获取当前的 AbortSignal，用于传递给异步任务
   get signal(): AbortSignal {
     return this.abortController.signal
   }
 
-  // 检查任务是否已取消，若已取消则抛出错误
-  checkCancelled(): void {
+  get isCancelled(): boolean {
+    return this.cancelled
+  }
+
+  throwIfCancelled(): void {
     if (this.cancelled)
-      throw new Error('Task cancelled')
+      throw new CancellationError()
   }
 
-  // 如果任务被暂停，则等待恢复
-  async waitIfPaused(): Promise<void> {
-    if (!this.paused)
-      return
-
-    await new Promise<void>((resolve) => {
-      this.pauseResolvers.push(resolve)
-    })
+  async waitWhilePaused(): Promise<void> {
+    while (this.paused && !this.cancelled) {
+      await new Promise<void>((resolve) => {
+        this.pauseResolvers.add(resolve)
+      })
+    }
+    this.throwIfCancelled()
   }
 
-  // 延迟指定时间，支持取消
   async delay(ms: number): Promise<void> {
+    if (ms <= 0)
+      return
     await new Promise<void>((resolve) => {
-      const timer = setTimeout(resolve, ms)
-      this.timers.push({ timer, resolve })
+      let timer: ReturnType<typeof setTimeout>
+      const handle = {
+        cancel: () => {
+          clearTimeout(timer)
+          this.delayHandles.delete(handle)
+          resolve()
+        },
+      }
+      timer = setTimeout(() => {
+        this.delayHandles.delete(handle)
+        resolve()
+      }, ms)
+      this.delayHandles.add(handle)
     })
   }
 
-  // 取消所有重试延迟，并立即执行其回调
-  private clearTimers(): void {
-    this.timers.splice(0).forEach(({ timer, resolve }) => {
-      clearTimeout(timer)
-      resolve()
-    })
-  }
-
-  // 暂停任务
   pause(): void {
+    if (this.cancelled || this.paused)
+      return
     this.paused = true
-    this.abortController.abort()
-    this.clearTimers()
   }
 
-  // 恢复任务
   resume(): void {
     if (!this.paused)
       return
-
     this.paused = false
-    this.abortController = new AbortController()
-    this.clearTimers()
-    this.pauseResolvers.splice(0).forEach(resolve => resolve())
+    const resolvers = [...this.pauseResolvers]
+    this.pauseResolvers.clear()
+    resolvers.forEach(resolve => resolve())
   }
 
-  // 取消任务
   cancel(): void {
+    if (this.cancelled)
+      return
     this.cancelled = true
+    this.paused = false
     this.abortController.abort()
-    this.clearTimers()
-
-    if (this.paused) {
-      this.paused = false
-      this.pauseResolvers.splice(0).forEach(resolve => resolve())
-    }
+    this.flushDelays()
+    const resolvers = [...this.pauseResolvers]
+    this.pauseResolvers.clear()
+    resolvers.forEach(resolve => resolve())
   }
 
-  // 清理状态，防止内存泄漏
   cleanup(): void {
-    this.paused = false
-    this.pauseResolvers.length = 0
-    this.clearTimers()
+    this.flushDelays()
+    this.pauseResolvers.clear()
+  }
+
+  private flushDelays(): void {
+    const handles = [...this.delayHandles]
+    this.delayHandles.clear()
+    handles.forEach(h => h.cancel())
   }
 }
 
-// 带重试的任务执行器
+export interface RetryOptions {
+  maxRetries: number
+  baseDelayMs: number
+  maxDelayMs: number
+}
+
 export async function executeWithRetry<T>(
   fn: () => Promise<T>,
   controller: TaskController,
+  options: RetryOptions,
 ): Promise<T> {
-  let retry = 0
+  const { maxRetries, baseDelayMs, maxDelayMs } = options
+  let attempt = 0
+  let lastError: unknown
 
   while (true) {
-    controller.checkCancelled()
-    await controller.waitIfPaused()
-    controller.checkCancelled()
+    controller.throwIfCancelled()
+    await controller.waitWhilePaused()
 
     try {
       return await fn()
     }
-    catch {
-      // 指数退避重试：0s, 1s, 2s, 3s, 4s, 5s...
-      const delay = Math.min(1000 * retry++, 5000)
-      await controller.delay(delay)
+    catch (error) {
+      if (error instanceof CancellationError)
+        throw error
+      if (controller.isCancelled)
+        throw new CancellationError()
+
+      lastError = error
+      if (attempt >= maxRetries)
+        throw new RetryExhaustedError(attempt + 1, lastError)
+
+      const backoff = Math.min(baseDelayMs * 2 ** attempt, maxDelayMs)
+      attempt++
+      await controller.delay(backoff)
     }
   }
 }

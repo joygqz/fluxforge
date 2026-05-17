@@ -1,20 +1,26 @@
 <script setup lang="ts">
-import type { Chunk } from 'fluxforge'
-import { calculateFileHash, chunkFile, collectChunks, processChunks } from 'fluxforge'
+import type { Chunk, ProcessController } from '../src'
 import { computed, ref } from 'vue'
+import { calculateFileHash, CancellationError, chunkFile, collectChunks, processChunks } from '../src'
 
 const file = ref<File | null>(null)
 const logs = ref<string[]>([])
 const isProcessing = ref(false)
-const chunkSize = ref(2 * 1024 * 1024) // 2MB (更优的默认值)
-const concurrency = ref(6) // 更优的默认并发数
+const chunkSize = ref(2 * 1024 * 1024)
+const concurrency = ref(6)
 const completedCount = ref(0)
 const totalCount = ref(0)
-const progress = computed(() => (completedCount.value / totalCount.value) * 100 || 0)
-let chunkPromises: Promise<Chunk>[] = []
-let controller: ReturnType<typeof processChunks> | null = null
 const isPaused = ref(false)
 const isCancelled = ref(false)
+
+const progress = computed(() => {
+  if (totalCount.value === 0)
+    return 0
+  return (completedCount.value / totalCount.value) * 100
+})
+
+let chunkPromises: Promise<Chunk>[] = []
+let controller: ProcessController | null = null
 
 const chunkSizeOptions = [
   { label: '1MB', value: 1024 * 1024 },
@@ -27,43 +33,43 @@ function addLog(message: string) {
   logs.value.push(`[${new Date().toLocaleTimeString()}] ${message}`)
 }
 
-function handleFileChange(event: Event) {
-  const input = event.target as HTMLInputElement
-  if (input.files?.length) {
-    file.value = input.files[0]
-    // 重置状态
-    chunkPromises = []
-    completedCount.value = 0
-    totalCount.value = 0
-    addLog(`📁 已选择文件: ${file.value.name}`)
-    addLog(`📊 文件信息: ${(file.value.size / 1024 / 1024).toFixed(2)} MB, ${file.value.type || '未知类型'}`)
-  }
+function resetState() {
+  chunkPromises = []
+  completedCount.value = 0
+  totalCount.value = 0
+  isPaused.value = false
+  isCancelled.value = false
 }
 
-async function createChunks() {
+function handleFileChange(event: Event) {
+  const input = event.target as HTMLInputElement
+  if (!input.files?.length)
+    return
+  file.value = input.files[0]
+  resetState()
+  addLog(`已选择文件: ${file.value.name}`)
+  addLog(`文件信息: ${(file.value.size / 1024 / 1024).toFixed(2)} MB, ${file.value.type || '未知类型'}`)
+}
+
+function createChunks() {
   if (!file.value)
     return
 
   try {
     isProcessing.value = true
-    addLog(`🔄 开始切片文件: ${file.value.name}`)
-    addLog(`📏 文件大小: ${(file.value.size / 1024 / 1024).toFixed(2)} MB`)
-    addLog(`⚙️ 切片大小: ${(chunkSize.value / 1024 / 1024).toFixed(2)} MB`)
+    addLog(`开始切片: ${file.value.name}`)
+    addLog(`切片大小: ${(chunkSize.value / 1024 / 1024).toFixed(2)} MB`)
 
-    const startTime = Date.now()
+    const startTime = performance.now()
     chunkPromises = chunkFile(file.value, { chunkSize: chunkSize.value })
-    const duration = Date.now() - startTime
+    const duration = (performance.now() - startTime).toFixed(0)
 
-    addLog(`✅ 已创建 ${chunkPromises.length} 个切片Promise (${duration}ms)`)
-    addLog(`🧵 使用 ${Math.min(navigator.hardwareConcurrency || 4, Math.ceil(file.value.size / chunkSize.value))} 个Web Worker并行处理`)
-    addLog(`⚡ 切片任务正在后台并行执行...`)
-
-    // 重置进度
     completedCount.value = 0
     totalCount.value = chunkPromises.length
+    addLog(`已创建 ${chunkPromises.length} 个切片 Promise（耗时 ${duration}ms）`)
   }
   catch (error) {
-    addLog(`❌ 切片创建失败: ${error instanceof Error ? error.message : String(error)}`)
+    addLog(`切片创建失败: ${error instanceof Error ? error.message : String(error)}`)
   }
   finally {
     isProcessing.value = false
@@ -76,68 +82,53 @@ async function processAllChunks() {
 
   isPaused.value = false
   isCancelled.value = false
+  isProcessing.value = true
+  addLog(`开始处理 ${chunkPromises.length} 个切片，并发数 ${concurrency.value}`)
+
+  let attempts = 0
+  let failures = 0
+
+  controller = processChunks(
+    chunkPromises,
+    async (chunk, signal) => {
+      attempts++
+      addLog(`#${chunk.index} 处理中 (${chunk.start}-${chunk.end} bytes)`)
+
+      const processingTime = Math.random() * 1000 + 500
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(resolve, processingTime)
+        signal.addEventListener('abort', () => {
+          clearTimeout(timer)
+          reject(new Error('aborted'))
+        }, { once: true })
+      })
+
+      if (Math.random() < 0.3) {
+        failures++
+        addLog(`#${chunk.index} 模拟失败（将自动重试）`)
+        throw new Error(`chunk ${chunk.index} failed`)
+      }
+
+      addLog(`#${chunk.index} 处理成功 (hash: ${chunk.hash.substring(0, 8)}...)`)
+    },
+    {
+      concurrency: concurrency.value,
+      onProgress: (completed, total) => {
+        completedCount.value = completed
+        totalCount.value = total
+      },
+    },
+  )
 
   try {
-    isProcessing.value = true
-    addLog(`开始处理 ${chunkPromises.length} 个切片（并发数: ${concurrency.value}）`)
-
-    let uploadAttempts = 0
-    let failedAttempts = 0
-
-    controller = processChunks(
-      chunkPromises,
-      async (chunk, signal) => {
-        // 立即响应取消信号
-        if (signal.aborted) {
-          if (signal.aborted) {
-            failedAttempts++
-            addLog(`⏹️ 切片 #${chunk.index} 被中断`)
-            throw new Error('aborted')
-          }
-        }
-
-        uploadAttempts++
-        addLog(`📤 切片 #${chunk.index} 开始处理 (${chunk.start}-${chunk.end} bytes)`)
-
-        // 模拟处理时间（上传、转换等）
-        const processingTime = Math.random() * 1000 + 500
-        await new Promise(resolve => setTimeout(resolve, processingTime))
-
-        // 再次检查取消状态
-        if (signal.aborted) {
-          addLog(`⏹️ 切片 #${chunk.index} 被中断`)
-          throw new Error('aborted')
-        }
-
-        // 模拟随机失败（30%概率），触发自动重试
-        if (Math.random() < 0.3) {
-          failedAttempts++
-          addLog(`❌ 切片 #${chunk.index} 处理失败（将自动重试）`)
-          throw new Error(`切片 ${chunk.index} 处理失败`)
-        }
-
-        addLog(`✅ 切片 #${chunk.index} 处理成功 (hash: ${chunk.hash.substring(0, 8)}...)`)
-      },
-      {
-        concurrency: concurrency.value,
-        onProgress: (completed, total) => {
-          completedCount.value = completed
-          totalCount.value = total
-          addLog(`📊 进度更新: ${completed}/${total} (${Math.round((completed / total) * 100)}%)`)
-        },
-      },
-    )
-
     await controller.promise
-    addLog(`🎉 所有切片处理完成！总计: ${chunkPromises.length}，失败重试: ${failedAttempts}，总尝试: ${uploadAttempts}`)
+    addLog(`所有切片处理完成！总尝试: ${attempts}，失败重试: ${failures}`)
   }
   catch (error) {
-    if (isCancelled.value) {
-      addLog('⏹️ 处理已被用户取消')
-    }
-    else {
-      addLog(`❌ 处理失败: ${error instanceof Error ? error.message : String(error)}`)
-    }
+    if (error instanceof CancellationError)
+      addLog('处理已被取消')
+    else
+      addLog(`处理失败: ${error instanceof Error ? error.message : String(error)}`)
   }
   finally {
     isProcessing.value = false
@@ -148,25 +139,27 @@ async function processAllChunks() {
 }
 
 function pauseProcessing() {
-  if (controller) {
-    controller.pause()
-    isPaused.value = true
-    addLog('⏸️ 已暂停处理')
-  }
+  if (!controller)
+    return
+  controller.pause()
+  isPaused.value = true
+  addLog('已暂停')
 }
+
 function resumeProcessing() {
-  if (controller) {
-    controller.resume()
-    isPaused.value = false
-    addLog('▶️ 已恢复处理')
-  }
+  if (!controller)
+    return
+  controller.resume()
+  isPaused.value = false
+  addLog('已恢复')
 }
+
 function cancelProcessing() {
-  if (controller) {
-    controller.cancel()
-    isCancelled.value = true
-    addLog('⏹️ 已请求取消处理')
-  }
+  if (!controller)
+    return
+  controller.cancel()
+  isCancelled.value = true
+  addLog('已请求取消')
 }
 
 async function calculateHash() {
@@ -175,17 +168,17 @@ async function calculateHash() {
 
   try {
     isProcessing.value = true
-    addLog('🔍 正在计算文件 MD5 哈希值...')
-    const startTime = Date.now()
+    addLog('开始计算文件 MD5...')
+    const startTime = performance.now()
 
     const hash = await calculateFileHash(chunkPromises)
-    const duration = Date.now() - startTime
+    const duration = (performance.now() - startTime).toFixed(0)
 
-    addLog(`🔐 文件 MD5: ${hash}`)
-    addLog(`⏱️ 计算耗时: ${duration}ms`)
+    addLog(`文件 MD5: ${hash}`)
+    addLog(`计算耗时: ${duration}ms`)
   }
   catch (error) {
-    addLog(`❌ MD5 计算失败: ${error instanceof Error ? error.message : String(error)}`)
+    addLog(`MD5 计算失败: ${error instanceof Error ? error.message : String(error)}`)
   }
   finally {
     isProcessing.value = false
@@ -198,22 +191,18 @@ async function handleCollectChunks() {
 
   try {
     isProcessing.value = true
-    addLog('📦 正在收集所有切片数据...')
-    const startTime = Date.now()
+    addLog('收集所有切片...')
+    const startTime = performance.now()
 
     const chunks = await collectChunks(chunkPromises)
-    const duration = Date.now() - startTime
+    const duration = (performance.now() - startTime).toFixed(0)
     const totalSize = chunks.reduce((sum, chunk) => sum + chunk.blob.size, 0)
 
-    addLog(`✅ 已收集所有切片：共 ${chunks.length} 个`)
-    addLog(`📊 总大小: ${(totalSize / 1024 / 1024).toFixed(2)} MB`)
-    addLog(`⏱️ 收集耗时: ${duration}ms`)
-
-    // 输出到控制台供调试
-    console.log('Collected chunks:', chunks)
+    addLog(`已收集 ${chunks.length} 个切片，总大小 ${(totalSize / 1024 / 1024).toFixed(2)} MB`)
+    addLog(`耗时: ${duration}ms`)
   }
   catch (error) {
-    addLog(`❌ 收集切片失败: ${error instanceof Error ? error.message : String(error)}`)
+    addLog(`收集切片失败: ${error instanceof Error ? error.message : String(error)}`)
   }
   finally {
     isProcessing.value = false
@@ -223,21 +212,17 @@ async function handleCollectChunks() {
 
 <template>
   <div class="container">
-    <h1 style="font-size:2.2rem">
-      FluxForge Demo
-    </h1>
+    <h1>FluxForge Demo</h1>
 
     <div class="main">
       <div class="controls">
         <div class="section">
-          <h3 style="font-size:1.2rem">
-            选择文件 / Select File
-          </h3>
+          <h3>选择文件</h3>
           <input type="file" :disabled="isProcessing" @change="handleFileChange">
 
           <div v-if="file" class="settings">
             <div>
-              <label style="font-size:1rem">切片大小 / Chunk Size：</label>
+              <label>切片大小</label>
               <select v-model="chunkSize" :disabled="isProcessing">
                 <option v-for="option in chunkSizeOptions" :key="option.value" :value="option.value">
                   {{ option.label }}
@@ -246,73 +231,60 @@ async function handleCollectChunks() {
             </div>
 
             <div class="buttons">
-              <button :disabled="isProcessing" style="font-size:1rem" @click="createChunks">
-                创建切片<br>
-                Create Chunks
+              <button :disabled="isProcessing" @click="createChunks">
+                创建切片
               </button>
             </div>
+
             <div class="buttons">
               <div>
-                <label style="font-size:1rem">并发处理数 / Concurrency：</label>
-                <input v-model="concurrency" type="number" min="1" max="16" :disabled="isProcessing">
+                <label>并发处理数</label>
+                <input v-model.number="concurrency" type="number" min="1" max="16" :disabled="isProcessing">
               </div>
               <button
-                :disabled="isProcessing || !chunkPromises.length" style="font-size:1rem"
+                :disabled="isProcessing || !chunkPromises.length"
                 @click="processAllChunks"
               >
-                模拟处理切片<br>
-                Process Chunks<br>
-                {{ completedCount }} / {{ totalCount }}
+                模拟处理切片 ({{ completedCount }} / {{ totalCount }})
               </button>
-              <progress max="100" :value="progress" style="width: 100%" />
-              <div style="display: flex; gap: 8px">
-                <button
-                  :disabled="!isProcessing || isPaused || isCancelled" style="font-size:1rem"
-                  @click="pauseProcessing"
-                >
-                  暂停<br>
-                  Pause
+              <progress max="100" :value="progress" />
+              <div class="button-row">
+                <button :disabled="!isProcessing || isPaused || isCancelled" @click="pauseProcessing">
+                  暂停
                 </button>
-                <button
-                  :disabled="!isProcessing || !isPaused || isCancelled" style="font-size:1rem"
-                  @click="resumeProcessing"
-                >
-                  恢复<br>
-                  Resume
+                <button :disabled="!isProcessing || !isPaused || isCancelled" @click="resumeProcessing">
+                  恢复
                 </button>
-                <button :disabled="!isProcessing || isCancelled" style="font-size:1rem" @click="cancelProcessing">
-                  取消<br>
-                  Cancel
+                <button :disabled="!isProcessing || isCancelled" @click="cancelProcessing">
+                  取消
                 </button>
               </div>
-              <button :disabled="isProcessing || !chunkPromises.length" style="font-size:1rem" @click="calculateHash">
-                计算 MD5<br>
-                Calculate MD5
+              <button :disabled="isProcessing || !chunkPromises.length" @click="calculateHash">
+                计算 MD5
               </button>
             </div>
+
             <div class="buttons">
-              <button :disabled="isProcessing || !chunkPromises.length" style="font-size:1rem" @click="handleCollectChunks">
-                收集所有块<br>
-                Collect All Chunks
+              <button :disabled="isProcessing || !chunkPromises.length" @click="handleCollectChunks">
+                收集所有切片
               </button>
             </div>
           </div>
         </div>
       </div>
+
       <div class="logs">
-        <h3 style="font-size:1.2rem">
-          日志 / Logs
-        </h3>
+        <h3>日志</h3>
         <div class="log-content">
           <div v-if="!logs.length" class="empty">
-            请选择文件开始... / Please select a file to start...
+            请选择文件开始...
           </div>
           <div v-for="(log, index) in logs" :key="index">
             {{ log }}
           </div>
         </div>
-        <button v-if="logs.length" style="font-size:1rem" @click="logs = []">
-          清空日志 / Clear Logs
+        <button v-if="logs.length" @click="logs = []">
+          清空日志
         </button>
       </div>
     </div>
@@ -368,10 +340,6 @@ h3 {
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-.settings {
-  margin-top: 15px;
-}
-
 .settings > div {
   margin-bottom: 15px;
 }
@@ -381,7 +349,6 @@ label {
   margin-bottom: 5px;
   font-weight: 500;
   color: #333;
-  font-size: 1rem;
 }
 
 input,
@@ -404,6 +371,20 @@ select:focus {
   flex-direction: column;
   gap: 8px;
   margin-top: 20px;
+}
+
+.button-row {
+  display: flex;
+  gap: 8px;
+}
+
+.button-row button {
+  flex: 1;
+}
+
+progress {
+  width: 100%;
+  height: 8px;
 }
 
 button {

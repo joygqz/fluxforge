@@ -2,7 +2,7 @@
   "name": "fluxforge",
   "type": "module",
   "version": "0.0.7",
-  "description": "文件分块和并发处理库，具备 Web Workers、自动重试、实时进度跟踪和 MD5 完整性验证功能，专为现代浏览器设计。",
+  "description": "基于 Web Worker 的文件分片库，提供并发处理、可暂停/取消任务控制、自动重试与 MD5 校验。",
   "author": {
     "name": "joygqz",
     "email": "joygqz@gmail.com",
@@ -59,13 +59,11 @@
   "types": "./dist/index.d.ts",
   "files": [
     "LICENSE",
-    "README-zh-CN.md",
     "README.md",
     "dist"
   ],
   "engines": {
-    "node": ">=20.0.0",
-    "npm": ">=8.0.0"
+    "node": ">=20.0.0"
   },
   "browserslist": [
     "Chrome >= 66",
@@ -74,24 +72,15 @@
     "Edge >= 16"
   ],
   "scripts": {
-    "dev": "run-p serve \"build-only {@}\" -- --watch",
-    "serve": "vite",
+    "dev": "vite",
     "build": "run-s typecheck lint build-only",
     "build-only": "vite build",
-    "build:example": "pnpm build && vite build --mode example",
+    "build:example": "vite build --mode example",
     "lint": "eslint --fix",
     "typecheck": "vue-tsc --build",
     "prepack": "pnpm build",
     "prepare": "simple-git-hooks",
     "release": "bumpp && pnpm publish"
-  },
-  "peerDependencies": {
-    "typescript": ">=5.0.0"
-  },
-  "peerDependenciesMeta": {
-    "typescript": {
-      "optional": true
-    }
   },
   "devDependencies": {
     "@antfu/eslint-config": "^5.1.0",
