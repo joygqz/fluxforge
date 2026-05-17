@@ -1,7 +1,7 @@
 {
   "name": "fluxforge",
   "type": "module",
-  "version": "0.0.7",
+  "version": "0.1.0",
   "description": "基于 Web Worker 的文件分片库，提供并发处理、可暂停/取消任务控制、自动重试与 MD5 校验。",
   "author": {
     "name": "joygqz",
