@@ -2,7 +2,7 @@
 
 基于 Web Worker 的浏览器端文件分片库，提供并发任务处理、可暂停/取消的任务控制、可配置的自动重试以及 MD5 校验。
 
-> [在线演示](https://joygqz.github.io/fluxforge/)
+[在线演示](https://joygqz.github.io/fluxforge/)
 
 ## 特性
 
@@ -13,7 +13,7 @@
 - **真实的文件 MD5**：`calculateFileHash` 按顺序读取分片并增量喂入 SparkMD5，结果与对原始文件做 `md5sum` 一致。
 - **TypeScript 优先**：完整的类型定义；导出 `CancellationError`、`RetryExhaustedError` 便于业务做精确判断。
 
-> 说明：MD5 适合做完整性校验（与服务端比对），**不适用于安全场景**（如密码、签名）。
+说明：MD5 适合做完整性校验（与服务端比对），**不适用于安全场景**（如密码、签名）。
 
 ## 安装
 
@@ -155,7 +155,7 @@ function calculateFileHash(chunkPromises: Promise<Chunk>[]): Promise<string>
 
 按顺序读取每个分片的二进制数据，增量计算并返回完整文件的 MD5。结果与服务端对原始文件执行 `md5sum` **一致**。
 
-> 注意：这会触发对每个分片的 `arrayBuffer()` 读取。大文件上传完成后不再需要 MD5 时可以省略本步骤。
+注意：这会触发对每个分片的 `arrayBuffer()` 读取。大文件上传完成后不再需要 MD5 时可以省略本步骤。
 
 ### 类型
 
